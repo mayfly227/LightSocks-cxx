@@ -54,3 +54,11 @@ $ make
 [2020-04-02 14:55:25.969] [info] 成功监听地址-->socks5://127.0.0.1:7878
 ```
 
+## 感谢
+<https://github.com/libevent/libevent>
+<https://github.com/gwuhaolin/lightsocks>
+<https://github.com/linw1995/lightsocks-python>
+<https://github.com/ReneNyffenegger/cpp-base64>
+<https://github.com/bblanchon/ArduinoJson>
+<https://github.com/LeeReindeer/lightsocks-c>
+
