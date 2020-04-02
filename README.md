@@ -56,9 +56,14 @@ $ make
 
 ## 感谢
 <https://github.com/libevent/libevent>
+
 <https://github.com/gwuhaolin/lightsocks>
+
 <https://github.com/linw1995/lightsocks-python>
+
 <https://github.com/ReneNyffenegger/cpp-base64>
+
 <https://github.com/bblanchon/ArduinoJson>
+
 <https://github.com/LeeReindeer/lightsocks-c>
 
