@@ -1,3 +1,21 @@
 # Project exclude paths
 /cmake-build-release-wsl/
 /lib/base64/CMakeFiles/
+/.vscode/
+/cmake-build-release/
+/cmake-build-debug/
+/build-wsl/
+/build/
+/lib/base64/base64.dir/
+/lib/base64/Debug/
+/lib/base64/base64.vcxproj
+/lib/base64/base64.vcxproj.filters
+/lib/base64/cmake_install.cmake
+.idea/.gitignore
+.idea/.name
+.idea/SBProxy.iml
+.idea/deployment.xml
+.idea/encodings.xml
+.idea/misc.xml
+.idea/modules.xml
+.idea/vcs.xml
