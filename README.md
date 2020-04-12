@@ -3,7 +3,7 @@
 一个轻量级网络混淆代理，基于 SOCKS5 协议，可用来代替 Shadowsocks(?)。
 
 - 只专注于混淆，用最简单高效的混淆算法达到目的；
-- 基于`c++ 11`实现,使用高效的[libevent](https://github.com/libevent/libevent)网络库；
+- 使用`c++ 11`,基于高效的[libevent](https://github.com/libevent/libevent)网络库；
 - 使用`cmake`构建,方便实现跨平台
 
 > 本项目为 [你也能写个 Shadowsocks](https://github.com/gwuhaolin/blog/issues/12) 的 c++ 实现
@@ -26,7 +26,10 @@ $ cmake --build . --config Release
 ### CMake (Linux)
 请先安装libevent2.1.11
 <https://github.com/libevent/libevent>
-Linux:克隆本项目<https://github.com/maxlv7/LightSocks-cxx.git>，进入项目主目录。
+
+如果你使用的是ubuntu18.04 or later，也可以直接`apt install libevent-dev`直接安装libevent库
+
+其它Linux:克隆本项目<https://github.com/maxlv7/LightSocks-cxx.git>，进入项目主目录。
 ```
 $ mkdir build && cd build 
 $ cmake ..
