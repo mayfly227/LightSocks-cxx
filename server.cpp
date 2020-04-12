@@ -32,7 +32,6 @@ void server::local_event_cb(bufferevent *bev, short what, void *ctx) {
         spdlog::debug("进入本地逻辑");
         if (what & BEV_EVENT_ERROR) {
             spdlog::debug("本地操作时发生错误");
-            spdlog::warn("本地操作时发生错误");
             bufferevent_free(context->self);
             bufferevent_free(context->partner);
             delete context;
@@ -40,51 +39,15 @@ void server::local_event_cb(bufferevent *bev, short what, void *ctx) {
             return;
         }
         if (context->partner) {
-            spdlog::warn("调用了local_read_cb在event里...");
-            spdlog::warn("清除客户端bev");
+            spdlog::debug("调用了local_read_cb在event里...");
+            spdlog::debug("清除客户端bev");
             bufferevent_free(context->self);
             bufferevent_free(context->partner);
             delete context;
             context = nullptr;
         }
     }
-//    else {
-//        if (what & (BEV_EVENT_TIMEOUT | BEV_EVENT_READING)) {
-//            spdlog::debug("读取客户端数据超时...");
-//            if (context->self){
-//            bufferevent_free(context->self);
-//            }
-//            if (context->partner) {
-//                bufferevent_free(context->partner);
-//            }
-//            delete context;
-//            context= nullptr;
-//            return;
-//        }
-//        if (what & BEV_EVENT_READING) {
-//            spdlog::debug("客户端读出错");
-//            if (context->self){
-//                bufferevent_free(context->self);
-//            }
-//            if (context->partner) {
-//                bufferevent_free(context->partner);
-//            }
-//            delete context;
-//            context = nullptr;
-//            return;
-//        } else {
-//            spdlog::debug("other error...");
-//            if (context->self){
-//                bufferevent_free(context->self);
-//            }
-//            if (context->partner) {
-//                bufferevent_free(context->partner);
-//            }
-//            delete context;
-//            context= nullptr;
-//            return;
-//        }
-//    }
+
 }
 
 void server::local_read_cb(bufferevent *bev, void *arg) {
@@ -95,7 +58,7 @@ void server::local_read_cb(bufferevent *bev, void *arg) {
     }
     if (context->flag == 0) {
         //socks5握手包
-        unsigned char request[64]={0};
+        unsigned char request[64] = {0};
         auto data_len = bufferevent_read(context->self, request, sizeof(request) - 1);
 #ifdef ENCRYPT
         unsigned char r_password[256] = {0};
@@ -129,7 +92,7 @@ void server::local_read_cb(bufferevent *bev, void *arg) {
         }
     } else if (context->flag == 1) {
         //读取建立连接的信息
-        unsigned char connect[64]={0};
+        unsigned char connect[64] = {0};
         auto data_len = bufferevent_read(context->self, connect, sizeof(connect) - 1);
         //如果小于7
         if (data_len < 7) { return; }
@@ -138,7 +101,7 @@ void server::local_read_cb(bufferevent *bev, void *arg) {
         for (auto j = 0; j < 256; j++) {
             r_password[Cipher::password[j]] = j;
         }
-        unsigned char connect_encrypt[64]={0};
+        unsigned char connect_encrypt[64] = {0};
         for (int k = 0; k < data_len; k++) {
             connect_encrypt[k] = connect[k];
         }
@@ -155,33 +118,34 @@ void server::local_read_cb(bufferevent *bev, void *arg) {
         //parse ATYP
         switch (connect[3]) {
             //ipv4
-//            case 0x01: {
-//                spdlog::debug("直接是ipv4");
-//                //parse ip
-//                std::string ip;
-//                char ips[read_len-6+3];
-//                char ipip[read_len-6+3];
-//                auto step = 0;
-//                for (int i = 4; i < read_len - 2; i++) {
-////                    ip += (char) connect[i];
-//                    ips[i-4+step] = (char)connect[i];
-//                    if (i!=read_len-2-1){
-//                    ips[i-4+step] = '.';
-//                    }
-//                    step+=1;
-//                }
-//                evutil_inet_ntop(2,ips, ipip,sizeof(ips));
-//                context->request_ip = "47.93.249.228";
-//                //parse port
-//                spdlog::info("ip is {}",context->request_ip);
-//                const int port = connect[read_len - 2] << 8 | connect[read_len - 1];
-//                context->request_port = port;
-//                unsigned char data_re[7]{0x05, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00};
-//                context->flag = 2;
-//                bufferevent_write(bev, data_re, 7);
-//                break;
-//            }
-//            1 187
+            case 0x01: {
+                //parse ip
+                unsigned char ip2[32];
+                char ip_dot[16];
+                for (int i = 4; i < data_len - 2; i++) {
+                    ip2[i - 4] = connect[i];
+                }
+                const char *ip = evutil_inet_ntop(AF_INET, ip2, ip_dot, 16);
+                context->request_ip = ip;
+                //parse port
+                spdlog::debug("ip is {}", context->request_ip);
+                const int port = connect[data_len - 2] << 8 | connect[data_len - 1];
+                context->request_port = port;
+                unsigned char reply[7]{0x05, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00};
+#ifdef ENCRYPT
+                unsigned char reply_encrypt[7] = {0};
+                for (int k = 0; k < 7; k++) {
+                    reply_encrypt[k] = reply[k];
+                }
+                for (int i = 0; i < 7; i++) {
+                    reply[i] = Cipher::password[reply_encrypt[i]];
+                }
+#endif
+                context->flag = 2;
+                bufferevent_write(bev, reply, 7);
+                break;
+            }
+                //parse domain
             case 0x03: {
                 auto domain_size = (int) connect[4];
                 std::string hostname;
@@ -207,7 +171,7 @@ void server::local_read_cb(bufferevent *bev, void *arg) {
                 break;
             case 0x04:
                 //ipv6
-                spdlog::debug("0x04");
+                spdlog::warn("暂时不支持ipv6!");
                 break;
             default:
                 spdlog::warn("error!");
@@ -234,12 +198,12 @@ void server::local_read_cb(bufferevent *bev, void *arg) {
             d_password[Cipher::password[i]] = i;
         }
         while (true) {
-            unsigned char encode_data[2048]={0};
+            unsigned char encode_data[2048] = {0};
             auto data_len = bufferevent_read(context->self, encode_data, sizeof(encode_data) - 1);
             if (data_len <= 0) {
                 break;
             }
-            unsigned char temp_data[2048]={0};
+            unsigned char temp_data[2048] = {0};
             for (auto i = 0; i < data_len; i++) {
                 temp_data[i] = d_password[encode_data[i]];
             }
@@ -264,13 +228,13 @@ void server::remote_event_cb(bufferevent *bev, short what, void *ctx) {
         return;
     }
     if (what & BEV_EVENT_CONNECTED) {
-        spdlog::info("远程服务端tcp握手成功...");
+        spdlog::debug("远程服务端tcp握手成功...");
         context->flag = 2;
         auto fd = bufferevent_getfd(context->self);
         if (fd > 0) {
             unsigned char reply[7] = {0x05, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00};
 #ifdef ENCRYPT
-            unsigned char reply_encrypt[7]={0};
+            unsigned char reply_encrypt[7] = {0};
             for (int k = 0; k < 7; k++) {
                 reply_encrypt[k] = reply[k];
             }
@@ -282,10 +246,10 @@ void server::remote_event_cb(bufferevent *bev, short what, void *ctx) {
             //返回握手包
             bufferevent_write(context->self, reply, sizeof(reply));
         } else {
-//            bufferevent_free(context->self);
-//            bufferevent_free(context->partner);
-//            delete context;
-//            context = nullptr;
+            bufferevent_free(context->self);
+            bufferevent_free(context->partner);
+            delete context;
+            context = nullptr;
             return;
         }
         return;
@@ -293,7 +257,7 @@ void server::remote_event_cb(bufferevent *bev, short what, void *ctx) {
     if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
         spdlog::debug("进入远程逻辑...");
         if (what & BEV_EVENT_ERROR) {
-            spdlog::warn("服务端发生错误...");
+            spdlog::debug("服务端发生错误...");
             bufferevent_free(context->self);
             bufferevent_free(context->partner);
             delete context;
@@ -301,7 +265,7 @@ void server::remote_event_cb(bufferevent *bev, short what, void *ctx) {
             return;
         }
         if (context->self) {
-            spdlog::warn("调用了remote_read_cb在event里...");
+            spdlog::debug("调用了remote_read_cb在event里...");
             bufferevent_free(context->self);
             bufferevent_free(context->partner);
             delete context;
@@ -309,7 +273,7 @@ void server::remote_event_cb(bufferevent *bev, short what, void *ctx) {
         }
     } else {
         if (what & BEV_EVENT_TIMEOUT && what & BEV_EVENT_READING) {
-            spdlog::info("服务端读取数据端超时...");
+            spdlog::debug("服务端读取数据端超时...");
             bufferevent_free(context->partner);
             bufferevent_free(context->self);
             delete context;
@@ -333,15 +297,15 @@ void server::remote_read_cb(bufferevent *bev, void *arg) {
         //把数据从缓冲区移除
         evbuffer_drain(remote, len);
     }
-    // TODO 加密数据返回到客户端
 #ifdef ENCRYPT
+    // TODO need bug fixed
     while (true) {
-        unsigned char data[2048]={0};
+        unsigned char data[2048] = {0};
         auto data_len = bufferevent_read(context->partner, data, sizeof(data) - 1);
         if (data_len <= 0) {
             break;
         }
-        unsigned char temp_data[2048]={0};
+        unsigned char temp_data[2048] = {0};
         for (auto i = 0; i < data_len; i++) {
             temp_data[i] = Cipher::password[data[i]];
         }
@@ -361,7 +325,7 @@ void server::listen_cb(evconnlistener *lev, evutil_socket_t s, sockaddr *sin, in
     //监听本地客户端,用本地客户端连接的socket
     auto bufev_local = bufferevent_socket_new(base, s, BEV_OPT_CLOSE_ON_FREE);
     //本地客户端超时为10s
-    timeval local_time_out = {0, 0};
+    timeval local_time_out = {15, 0};
     bufferevent_set_timeouts(bufev_local, &local_time_out, 0);
     //----------------------------------------------------------------------//
     //设置上下文
@@ -374,14 +338,14 @@ void server::listen_cb(evconnlistener *lev, evutil_socket_t s, sockaddr *sin, in
     bufferevent_enable(bufev_local, EV_READ | EV_WRITE);
 }
 
-//void server::setConfig(unsigned short local_port, std::string password) {
-//    server::listen_port = local_port;
-//    std::string decoded = base64_decode(password);
-//    auto t = reinterpret_cast<const unsigned char *>(decoded.c_str());
-//    for (auto i = 0; i < decoded.length(); i++) {
-//        server::password[i] = (int) t[i];
-//    }
-//}
+void server::setConfig(unsigned short listen_port, std::string password) {
+    server::listen_port = listen_port;
+    std::string decoded = base64_decode(password);
+    auto t = reinterpret_cast<const unsigned char *>(decoded.c_str());
+    for (auto i = 0; i < decoded.length(); i++) {
+        Cipher::password[i] = (int) t[i];
+    }
+}
 
 void server::run() {
 
@@ -460,7 +424,7 @@ void server::dns_cb(int errcode, evutil_addrinfo *answer, void *ctx) {
         return;
     }
     if (!errcode) {
-        char temp_ip[256]{0};
+        char temp_ip[128] = {0};
         auto sin = (sockaddr_in *) answer->ai_addr;
         auto ip = evutil_inet_ntop(answer->ai_family, &sin->sin_addr, temp_ip, sizeof(temp_ip));
         std::string real_ip = ip;
@@ -475,9 +439,9 @@ void server::dns_cb(int errcode, evutil_addrinfo *answer, void *ctx) {
         sin_remote.sin_port = htons(context->request_port);
         const char *src = context->request_ip.c_str();
         evutil_inet_pton(AF_INET, src, &sin_remote.sin_addr.s_addr);
-        spdlog::info("建立tcp的ip:{} port:{}", src, context->request_port);
-        //服务端服务器超时时间为10s
-        timeval t1 = {0, 0};
+        spdlog::debug("建立tcp的ip:{} port:{}", src, context->request_port);
+        //服务端服务器超时时间为15s
+        timeval t1 = {15, 0};
         bufferevent_set_timeouts(bufev_remote, &t1, nullptr); //读取 写入
         //设置回调
         bufferevent_setcb(bufev_remote, remote_read_cb, nullptr, remote_event_cb, context);

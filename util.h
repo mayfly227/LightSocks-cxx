@@ -9,11 +9,12 @@
 #include "ArduinoJson-v6.15.0.hpp"
 
 using ArduinoJson::DynamicJsonDocument;
-using std::string;
 
 class Util {
 public:
     static int readJsonConfig(const char *filename, DynamicJsonDocument &doc);
+
+    static std::string genPassword();
 };
 
 

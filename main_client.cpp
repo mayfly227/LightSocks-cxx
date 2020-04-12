@@ -4,6 +4,10 @@
 #include "spdlog/spdlog.h"
 #include <fstream>
 
+#ifdef _WIN32
+#include <Windows.h>
+#include <tchar.h>
+#endif
 using ArduinoJson::DynamicJsonDocument;
 
 int main(int argc, char const *argv[]) {
@@ -12,7 +16,7 @@ int main(int argc, char const *argv[]) {
     const char *config_name = "config.json";
     DynamicJsonDocument doc{1024};
     auto ret = Util::readJsonConfig(config_name, doc);
-    if (ret) {
+    if (!ret) {
         spdlog::warn("加载配置文件[{}]失败", config_name);
         doc.clear();
         std::ofstream outfile;
@@ -38,6 +42,17 @@ int main(int argc, char const *argv[]) {
     spdlog::info("读取到远程端口:{}", remote_port);
     client::setConfig(ip, local_port, remote_port, password);
     doc.clear();
+#ifdef _WIN32
+    PROCESS_INFORMATION pi;	//进程信息
+    STARTUPINFO si;			//进程启动信息
+    memset(&si, 0, sizeof(STARTUPINFO));
+    si.cb = sizeof(si);
+    si.wShowWindow = SW_HIDE;
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    if(CreateProcess(_T("privoxy.exe"), _tcsdup(TEXT("config.txt")), 0, 0, false, 0, 0, 0, &si, &pi)){
+        spdlog::info("调用privoxy成功...");
+    }
+#endif
     client::init();
     client::clear();
     return 0;

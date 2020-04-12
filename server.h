@@ -42,7 +42,7 @@ using std::string;
 class server {
 public:
 
-//    static void setConfig(unsigned short listen_port, string password);
+    static void setConfig(unsigned short listen_port, string password);
 
 public:
     static void local_event_cb(bufferevent *bev, short what, void *ctx);
@@ -60,7 +60,8 @@ public:
 
     static void listen_cb(evconnlistener *ev, evutil_socket_t s, sockaddr *sin, int sin_len, void *arg);
 
-    static void dns_cb(int errcode,evutil_addrinfo *addr,void *ctx);
+    static void dns_cb(int errcode, evutil_addrinfo *addr, void *ctx);
+
     static void run();
 
     static void clear();

@@ -177,7 +177,7 @@ void client::remote_read_cb(bufferevent *bev, void *arg) {
     dst = bufferevent_get_output(partner);
     // remote->dst(remote->remote) 相当于把远程流量转发到本地
     evbuffer_add_buffer(dst, temp);
-    free(temp);
+    evbuffer_free(temp);
 }
 
 void client::close_on_finished_write_cb(struct bufferevent *bev, void *ctx) {
@@ -196,28 +196,28 @@ void client::listen_cb(evconnlistener *ev, evutil_socket_t s, sockaddr *sin, int
     //监听本地客户端,用本地客户端连接的socket
     auto bufev_local = bufferevent_socket_new(base, s, BEV_OPT_CLOSE_ON_FREE);
     //本地客户端超时为10s
-    timeval local_time_out = {10, 0};
+    timeval local_time_out = {0, 0};
     bufferevent_set_timeouts(bufev_local, &local_time_out, 0);
     //----------------------------------------------------------------------//
 
     //连接到远程客户端
     auto bufev_remote = bufferevent_socket_new(base, -1, BEV_OPT_CLOSE_ON_FREE);
 
-    sockaddr_in sin_;
-    memset(&sin, 0, sizeof(sin));
-    sin_.sin_family = AF_INET;
-    sin_.sin_port = htons(remote_port);
-    evutil_inet_pton(AF_INET, ip, &sin_.sin_addr.s_addr);
+    sockaddr_in sin_remote{};
+    memset(&sin_remote, 0, sizeof(sin_remote));
+    sin_remote.sin_family = AF_INET;
+    sin_remote.sin_port = htons(remote_port);
+    evutil_inet_pton(AF_INET, ip, &sin_remote.sin_addr.s_addr);
 
     //远程服务器超时时间为10s
-    timeval t1 = {15, 0};
+    timeval t1 = {0, 0};
     bufferevent_set_timeouts(bufev_remote, &t1, 0); //读取 写入
 
     //连接服务端
     auto re = bufferevent_socket_connect(
             bufev_remote,
-            (sockaddr *) &sin_,
-            sizeof(sin_));
+            (sockaddr *) &sin_remote,
+            sizeof(sin_remote));
     if (re == 0) {
         spdlog::debug("connect事件完成");
     }
@@ -259,8 +259,7 @@ void client::init() {
     }
 #else
     // 无视管道信号,发送数据给已关闭的socket
-    if (signal(SIGPIPE, SIG_IGN) == SIG_ERR)
-    {
+    if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
 //        return 1;
     }
 #endif // _WIN32
@@ -269,7 +268,7 @@ void client::init() {
         base_loop = base;
     }
     //绑定地址
-    sockaddr_in sin_local;
+    sockaddr_in sin_local{};
     memset(&sin_local, 0, sizeof(sin_local));
     sin_local.sin_family = AF_INET;
     sin_local.sin_port = htons(local_port);
