@@ -32,20 +32,13 @@ void server::local_event_cb(bufferevent *bev, short what, void *ctx) {
         spdlog::debug("进入本地逻辑");
         if (what & BEV_EVENT_ERROR) {
             spdlog::debug("本地操作时发生错误");
-            bufferevent_free(context->self);
-            bufferevent_free(context->partner);
-            delete context;
-            context = nullptr;
-            return;
         }
         if (context->partner) {
-            spdlog::debug("调用了local_read_cb在event里...");
-            spdlog::debug("清除客户端bev");
-            bufferevent_free(context->self);
             bufferevent_free(context->partner);
-            delete context;
-            context = nullptr;
         }
+        bufferevent_free(context->self);
+        delete context;
+        context = nullptr;
     }
 
 }
@@ -61,32 +54,14 @@ void server::local_read_cb(bufferevent *bev, void *arg) {
         unsigned char request[64] = {0};
         auto data_len = bufferevent_read(context->self, request, sizeof(request) - 1);
 #ifdef ENCRYPT
-        unsigned char r_password[256] = {0};
-        for (auto j = 0; j < 256; j++) {
-            r_password[Cipher::password[j]] = j;
-        }
-        unsigned char success_decrypt[2];
-        for (int k = 0; k < 64; k++) {
-            success_decrypt[k] = request[k];
-        }
-        for (int i = 0; i < 64; i++) {
-            request[i] = r_password[success_decrypt[i]];
-        }
-//        Cipher::decrypt_bytes(request, data_len);
+        Cipher::decrypt_bytes(request, data_len);
 #endif
         //解析socks5请求
         if (request[0] == 0x05 && request[1] == 0x01 && request[2] == 0x00) {
             context->flag = 1;
             unsigned char success[] = {0x05, 0x00};
 #ifdef ENCRYPT
-            unsigned char success_encrypt[2];
-            for (int k = 0; k < 2; k++) {
-                success_encrypt[k] = success[k];
-            }
-            for (int i = 0; i < 2; i++) {
-                success[i] = Cipher::password[success_encrypt[i]];
-            }
-//            Cipher::encrypt_byte(success, sizeof(success));
+            Cipher::encrypt_byte(success, sizeof(success));
 #endif
             bufferevent_write(context->self, success, sizeof(success));
         }
@@ -97,18 +72,7 @@ void server::local_read_cb(bufferevent *bev, void *arg) {
         //如果小于7
         if (data_len < 7) { return; }
 #ifdef ENCRYPT
-        unsigned char r_password[256] = {0};
-        for (auto j = 0; j < 256; j++) {
-            r_password[Cipher::password[j]] = j;
-        }
-        unsigned char connect_encrypt[64] = {0};
-        for (int k = 0; k < data_len; k++) {
-            connect_encrypt[k] = connect[k];
-        }
-        for (int i = 0; i < data_len; i++) {
-            connect[i] = r_password[connect_encrypt[i]];
-        }
-//        Cipher::decrypt_bytes(connect, data_len);
+        Cipher::decrypt_bytes(connect, data_len);
 #endif
         //parse cmd
         if (connect[1] != 0x01) {
@@ -193,22 +157,7 @@ void server::local_read_cb(bufferevent *bev, void *arg) {
         }
         // TODO 解密数据返回到服务端
 #ifdef ENCRYPT
-        unsigned char d_password[256] = {0};
-        for (auto i = 0; i < 256; i++) {
-            d_password[Cipher::password[i]] = i;
-        }
-        while (true) {
-            unsigned char encode_data[2048] = {0};
-            auto data_len = bufferevent_read(context->self, encode_data, sizeof(encode_data) - 1);
-            if (data_len <= 0) {
-                break;
-            }
-            unsigned char temp_data[2048] = {0};
-            for (auto i = 0; i < data_len; i++) {
-                temp_data[i] = d_password[encode_data[i]];
-            }
-            bufferevent_write(context->partner, temp_data, data_len);
-        }
+        Cipher::decrypt(context->self, context->partner);
 #else
         evbuffer *dst,*src;
         src = bufferevent_get_input(context->self);
@@ -230,18 +179,12 @@ void server::remote_event_cb(bufferevent *bev, short what, void *ctx) {
     if (what & BEV_EVENT_CONNECTED) {
         spdlog::debug("远程服务端tcp握手成功...");
         context->flag = 2;
+        // TODO bug fixed
         auto fd = bufferevent_getfd(context->self);
         if (fd > 0) {
             unsigned char reply[7] = {0x05, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00};
 #ifdef ENCRYPT
-            unsigned char reply_encrypt[7] = {0};
-            for (int k = 0; k < 7; k++) {
-                reply_encrypt[k] = reply[k];
-            }
-            for (int i = 0; i < 7; i++) {
-                reply[i] = Cipher::password[reply_encrypt[i]];
-            }
-//            Cipher::encrypt_byte(reply, sizeof(reply));
+            Cipher::encrypt_byte(reply, sizeof(reply));
 #endif
             //返回握手包
             bufferevent_write(context->self, reply, sizeof(reply));
@@ -258,27 +201,22 @@ void server::remote_event_cb(bufferevent *bev, short what, void *ctx) {
         spdlog::debug("进入远程逻辑...");
         if (what & BEV_EVENT_ERROR) {
             spdlog::debug("服务端发生错误...");
-            bufferevent_free(context->self);
-            bufferevent_free(context->partner);
-            delete context;
-            context = nullptr;
-            return;
         }
         if (context->self) {
-            spdlog::debug("调用了remote_read_cb在event里...");
             bufferevent_free(context->self);
-            bufferevent_free(context->partner);
-            delete context;
-            context = nullptr;
         }
+        bufferevent_free(context->partner);
+        delete context;
+        context = nullptr;
     } else {
         if (what & BEV_EVENT_TIMEOUT && what & BEV_EVENT_READING) {
             spdlog::debug("服务端读取数据端超时...");
+            if (context->self) {
+                bufferevent_free(context->self);
+            }
             bufferevent_free(context->partner);
-            bufferevent_free(context->self);
             delete context;
             context = nullptr;
-            return;
         }
     }
 }
@@ -299,18 +237,7 @@ void server::remote_read_cb(bufferevent *bev, void *arg) {
     }
 #ifdef ENCRYPT
     // TODO need bug fixed
-    while (true) {
-        unsigned char data[2048] = {0};
-        auto data_len = bufferevent_read(context->partner, data, sizeof(data) - 1);
-        if (data_len <= 0) {
-            break;
-        }
-        unsigned char temp_data[2048] = {0};
-        for (auto i = 0; i < data_len; i++) {
-            temp_data[i] = Cipher::password[data[i]];
-        }
-        bufferevent_write(context->self, temp_data, data_len);
-    }
+    Cipher::encrypt(context->self, context->partner);
 #else
     evbuffer *src,*dst;
     src = bufferevent_get_input(context->partner);
@@ -320,7 +247,12 @@ void server::remote_read_cb(bufferevent *bev, void *arg) {
 }
 
 void server::listen_cb(evconnlistener *lev, evutil_socket_t s, sockaddr *sin, int sin_len, void *arg) {
-    spdlog::info("客户端有新的连接...");
+//    spdlog::info("客户端有新的连接...");
+    char ip[128]{0};
+    auto r_sa = (sockaddr_in *) sin;
+    evutil_inet_ntop(r_sa->sin_family, &(r_sa->sin_addr.s_addr), ip, sin_len);
+    spdlog::info("New connection from {}:{}", ip, r_sa->sin_port);
+
     auto base = evconnlistener_get_base(lev);
     //监听本地客户端,用本地客户端连接的socket
     auto bufev_local = bufferevent_socket_new(base, s, BEV_OPT_CLOSE_ON_FREE);
@@ -367,7 +299,6 @@ void server::run() {
 #else
     // 无视管道信号,发送数据给已关闭的socket
     if (std::signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
-        spdlog::warn("管道信号发生...");
     }
 #endif // _WIN32
     auto base = event_base_new();
@@ -394,7 +325,7 @@ void server::run() {
             (sockaddr *) &sin_local,
             sizeof(sin_local));
     if (ev_listen) {
-        spdlog::info("监听在: 127.0.0.1:{}", listen_port);
+        spdlog::info("监听在: [::]:{}", listen_port);
         //资源清理
         event_base_dispatch(base_loop);
         evconnlistener_free(ev_listen);
