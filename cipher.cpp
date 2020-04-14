@@ -40,19 +40,19 @@ void Cipher::encrypt(bufferevent *self, bufferevent *partner) {
 }
 
 void Cipher::encrypt_byte(unsigned char bytes[], int len) {
-    auto t_bytes = new unsigned char(len);
+    auto t_bytes = new unsigned char[len];
     for (int k = 0; k < len; k++) {
         t_bytes[k] = bytes[k];
     }
     for (int i = 0; i < len; ++i) {
         bytes[i] = Cipher::password[t_bytes[i]];
     }
-    delete t_bytes;
+    delete[] t_bytes;
 }
 
 void Cipher::decrypt_bytes(unsigned char bytes[], int len) {
     unsigned char r_password[256] = {0};
-    auto t_bytes = new unsigned char(len);
+    auto t_bytes = new unsigned char[len];
     for (int k = 0; k < len; k++) {
         t_bytes[k] = bytes[k];
     }
@@ -62,7 +62,7 @@ void Cipher::decrypt_bytes(unsigned char bytes[], int len) {
     for (int i = 0; i < len; i++) {
         bytes[i] = r_password[t_bytes[i]];
     }
-    delete t_bytes;
+    delete[] t_bytes;
 }
 
 unsigned char Cipher::password[256]{0};
