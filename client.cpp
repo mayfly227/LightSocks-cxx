@@ -210,7 +210,7 @@ void client::listen_cb(evconnlistener *ev, evutil_socket_t s, sockaddr *sin, int
     evutil_inet_pton(AF_INET, ip, &sin_remote.sin_addr.s_addr);
 
     //远程服务器超时时间为10s
-    timeval t1 = {0, 0};
+    timeval t1 = {15, 0};
     bufferevent_set_timeouts(bufev_remote, &t1, 0); //读取 写入
 
     //连接服务端
