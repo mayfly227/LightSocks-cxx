@@ -35,8 +35,10 @@ void server::local_event_cb(bufferevent *bev, short what, void *ctx) {
         }
         if (context->partner) {
             bufferevent_free(context->partner);
+            context->partner = nullptr;
         }
         bufferevent_free(context->self);
+        context->self = nullptr;
         delete context;
         context = nullptr;
     }
@@ -97,13 +99,14 @@ void server::local_read_cb(bufferevent *bev, void *arg) {
                 context->request_port = port;
                 unsigned char reply[7]{0x05, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00};
 #ifdef ENCRYPT
-                unsigned char reply_encrypt[7] = {0};
-                for (int k = 0; k < 7; k++) {
-                    reply_encrypt[k] = reply[k];
-                }
-                for (int i = 0; i < 7; i++) {
-                    reply[i] = Cipher::password[reply_encrypt[i]];
-                }
+//                unsigned char reply_encrypt[7] = {0};
+//                for (int k = 0; k < 7; k++) {
+//                    reply_encrypt[k] = reply[k];
+//                }
+//                for (int i = 0; i < 7; i++) {
+//                    reply[i] = Cipher::password[reply_encrypt[i]];
+//                }
+                Cipher::encrypt_byte(reply,7);
 #endif
                 context->flag = 2;
                 bufferevent_write(bev, reply, 7);
@@ -180,21 +183,17 @@ void server::remote_event_cb(bufferevent *bev, short what, void *ctx) {
         spdlog::debug("远程服务端tcp握手成功...");
         context->flag = 2;
         // TODO bug fixed
-        auto fd = bufferevent_getfd(context->self);
-        if (fd > 0) {
-            unsigned char reply[7] = {0x05, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00};
-#ifdef ENCRYPT
-            Cipher::encrypt_byte(reply, sizeof(reply));
-#endif
-            //返回握手包
-            bufferevent_write(context->self, reply, sizeof(reply));
-        } else {
-            bufferevent_free(context->self);
-            bufferevent_free(context->partner);
-            delete context;
-            context = nullptr;
+        // bug: 这个时候有可能已经没有Local的context了
+        if (!context->self) {
+            spdlog::warn("没有local的context了...");
             return;
         }
+        unsigned char reply[7] = {0x05, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00};
+#ifdef ENCRYPT
+        Cipher::encrypt_byte(reply, sizeof(reply));
+#endif
+        //返回握手包
+        bufferevent_write(context->self, reply, sizeof(reply));
         return;
     }
     if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
@@ -204,8 +203,10 @@ void server::remote_event_cb(bufferevent *bev, short what, void *ctx) {
         }
         if (context->self) {
             bufferevent_free(context->self);
+            context->self = nullptr;
         }
         bufferevent_free(context->partner);
+        context->partner = nullptr;
         delete context;
         context = nullptr;
     } else {
@@ -213,8 +214,10 @@ void server::remote_event_cb(bufferevent *bev, short what, void *ctx) {
             spdlog::debug("服务端读取数据端超时...");
             if (context->self) {
                 bufferevent_free(context->self);
+                context->self = nullptr;
             }
             bufferevent_free(context->partner);
+            context->partner = nullptr;
             delete context;
             context = nullptr;
         }
@@ -358,6 +361,11 @@ void server::dns_cb(int errcode, evutil_addrinfo *answer, void *ctx) {
         char temp_ip[128] = {0};
         auto sin = (sockaddr_in *) answer->ai_addr;
         auto ip = evutil_inet_ntop(answer->ai_family, &sin->sin_addr, temp_ip, sizeof(temp_ip));
+        //可能解析不成功
+        if (!ip){
+            spdlog::warn("ip resolve error!");
+            exit(0);
+        }
         std::string real_ip = ip;
         context->request_ip = real_ip;
         spdlog::debug("Ip:{}-->port:{}", context->request_ip, context->request_port);
