@@ -1,23 +1,39 @@
-#include "server.h"
+﻿#include "server.h"
 #include "spdlog/spdlog.h"
 #include "ArduinoJson-v6.15.0.hpp"
 #include "util.h"
-
-#ifndef _WIN32
-
-#include <csignal>
 #include <fstream>
 
+#ifndef _WIN32
+#include <csignal>
 #endif
+#include <fstream>
+
 using ArduinoJson::DynamicJsonDocument;
 using ArduinoJson::serializeJson;
 
-int main(int argc, char **argv) {
-#ifndef _WIN32
-    if (std::signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
-        spdlog::warn("管道信号发生...");
+
+static void SignalHandler(int nSigno) {
+    signal(nSigno, SignalHandler);
+    switch (nSigno) {
+        case SIGPIPE:
+            printf("Process will not exit\n");
+            break;
+        default:
+            printf("%d signal unregister\n", nSigno);
+            break;
     }
-#endif
+}
+
+
+int main(int argc, char **argv) {
+    sigset_t signal_mask;
+    sigemptyset (&signal_mask);
+    sigaddset (&signal_mask, SIGPIPE);
+    int rc = pthread_sigmask (SIG_BLOCK, &signal_mask, nullptr);
+    if (rc != 0) {
+        printf("block sigpipe error\n");
+    }
     spdlog::set_level(spdlog::level::info);
 
     const char *config_name = "config_server.json";
@@ -26,12 +42,11 @@ int main(int argc, char **argv) {
     if (!ret) {
         spdlog::warn("加载配置文件[{}]失败", config_name);
         std::ofstream outfile;
-        doc["listen_port"]=7009;
-        doc["password"]=Util::genPassword();
+        doc["listen_port"] = 7009;
+        doc["password"] = Util::genPassword();
         outfile.open("config_server.json");
-        serializeJson(doc,outfile);
+        serializeJson(doc, outfile);
         outfile.close();
-        doc.clear();
         spdlog::info("已在当前文件夹下自动生成了[config_server.json]", config_name);
     }
     //read config from json
@@ -40,7 +55,7 @@ int main(int argc, char **argv) {
     const char *password = doc["password"];
     spdlog::info("读取到监听地址:[::]:{}", listen_port);
     spdlog::info("读取到密码:{}", password);
-
+    doc.clear();
     server::setConfig(listen_port, password);
     server::run();
     server::clear();
