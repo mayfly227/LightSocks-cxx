@@ -12,9 +12,7 @@ void client::local_event_cb(bufferevent *bev, short what, void *ctx) {
     auto partner = static_cast<bufferevent *>(ctx);
     //读到文件结尾或者发生错误
     if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
-        spdlog::debug("进入本地逻辑");
         if (what & BEV_EVENT_ERROR) {
-            spdlog::debug("本地操作时发生错误");
         }
         if (partner) {
             // flash all pending data
@@ -25,38 +23,28 @@ void client::local_event_cb(bufferevent *bev, short what, void *ctx) {
                 /* We still have to flush data from the other
                  * side, but when that's done, close the other
                  * side. */
-                spdlog::debug("进入 local evbuffer");
                 bufferevent_setcb(partner, 0, close_on_finished_write_cb, remote_event_cb, 0);
                 bufferevent_disable(partner, EV_READ);
             } else {
                 auto partner_fd = bufferevent_getfd(partner);
                 auto bev_fd = bufferevent_getfd(bev);
-                spdlog::debug("关闭fd[{}--{}]", partner_fd, bev_fd);
-                spdlog::debug("清除远程bev");
                 bufferevent_free(partner);
             }
         }
-        spdlog::debug("清除本地bev");
         bufferevent_free(bev);
     } else {
         if (what & (BEV_EVENT_TIMEOUT | BEV_EVENT_READING)) {
-            spdlog::debug("读取本地数据超时...");
             bufferevent_free(bev);
             bufferevent_free(partner);
-            spdlog::debug("清除本地bev,同时也清除了远程bev");
             return;
         }
         if (what & BEV_EVENT_READING) {
-            spdlog::debug("本地读出错");
             bufferevent_free(bev);
             bufferevent_free(partner);
-            spdlog::debug("清除本地bev,同时也清除了远程bev");
             return;
         } else {
-            spdlog::debug("other...");
             bufferevent_free(bev);
             bufferevent_free(partner);
-            spdlog::debug("清除本地bev,同时也清除了远程bev");
             return;
         }
     }
@@ -101,45 +89,30 @@ void client::remote_event_cb(bufferevent *bev, short what, void *ctx) {
         return;
     }
 
-    // if (what & BEV_EVENT_EOF)
-    // {
-    //     cout << "远程服务端关闭事件发生..." << endl;
-    //     bufferevent_free(bev);
-    //     cout << "清除远程bev" << endl;
-    //     return;
-    // }
     if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
-        spdlog::debug("进入远程逻辑...");
         if (what & BEV_EVENT_ERROR) {
-            spdlog::debug("远程服务端发生错误...");
         }
         if (partner) {
             // flash all pending data
             auto lens = evbuffer_get_length(bufferevent_get_output(partner));
-            spdlog::debug("remote lens -->[{}]", lens);
             remote_read_cb(bev, partner);
-            if (evbuffer_get_length(bufferevent_get_output(partner))) { /* We still have to flush data from the other
+            if (evbuffer_get_length(bufferevent_get_output(partner))) {
+                /* We still have to flush data from the other
                  * side, but when that's done, close the other
                  * side. */
-                spdlog::debug("进入 remote evbuffer");
                 bufferevent_setcb(partner, 0, close_on_finished_write_cb, local_event_cb, 0);
                 bufferevent_disable(partner, EV_READ);
             } else {
                 auto partner_fd = bufferevent_getfd(partner);
                 auto bev_fd = bufferevent_getfd(bev);
-                spdlog::debug("关闭fd[{}--{}]", partner_fd, bev_fd);
-                spdlog::debug("清除本地bev");
                 bufferevent_free(partner);
             }
         }
-        spdlog::debug("清除远程bev");
         bufferevent_free(bev);
     } else {
         if (what & BEV_EVENT_TIMEOUT && what & BEV_EVENT_READING) {
-            spdlog::debug("远程服务读取数据端超时...");
             bufferevent_free(bev);
             bufferevent_free(partner);
-            spdlog::debug("清除远程bev,同时也清除了本地bev");
             return;
         }
     }
@@ -153,7 +126,6 @@ void client::remote_read_cb(bufferevent *bev, void *arg) {
     auto len = evbuffer_get_length(remote);
     if (!partner) {
         //把数据从缓冲区移除
-        spdlog::debug("remote drain 调用");
         evbuffer_drain(remote, len);
     }
     //解密数据
@@ -169,7 +141,6 @@ void client::remote_read_cb(bufferevent *bev, void *arg) {
         for (auto i = 0; i < data_len; i++) {
             temp_data[i] = t_data[encode_data[i]];
         }
-        // cout << "解密的data len" << data_len << endl;
         evbuffer_add(temp, temp_data, data_len);
         len = evbuffer_get_length(remote);
     }
@@ -181,7 +152,6 @@ void client::remote_read_cb(bufferevent *bev, void *arg) {
 }
 
 void client::close_on_finished_write_cb(struct bufferevent *bev, void *ctx) {
-    spdlog::debug("进入close_on_finished_writecb");
     struct evbuffer *b = bufferevent_get_output(bev);
 
     if (evbuffer_get_length(b) == 0) {
@@ -190,7 +160,6 @@ void client::close_on_finished_write_cb(struct bufferevent *bev, void *ctx) {
 }
 
 void client::listen_cb(evconnlistener *ev, evutil_socket_t s, sockaddr *sin, int sin_len, void *arg) {
-    spdlog::debug("本地有新的连接");
 
     auto base = static_cast<event_base *>(arg);
     //监听本地客户端,用本地客户端连接的socket
@@ -219,7 +188,7 @@ void client::listen_cb(evconnlistener *ev, evutil_socket_t s, sockaddr *sin, int
             (sockaddr *) &sin_remote,
             sizeof(sin_remote));
     if (re == 0) {
-        spdlog::debug("connect事件完成");
+        spdlog::debug("connect success!");
     }
     //设置回调和事件
 
@@ -283,13 +252,13 @@ void client::init() {
             (sockaddr *) &sin_local,
             sizeof(sin_local));
     if (ev_listen) {
-        spdlog::info("成功监听地址-->socks5://127.0.0.1:{}", local_port);
+        spdlog::info("Listen on-->socks5://127.0.0.1:{}", local_port);
         //资源清理
         event_base_dispatch(base_loop);
         evconnlistener_free(ev_listen);
         event_base_free(base_loop);
     } else {
-        spdlog::warn("监听端口[{}]失败!", local_port);
+        spdlog::warn("Listen port [{}] error!", local_port);
     }
 
 

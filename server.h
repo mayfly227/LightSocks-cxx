@@ -39,6 +39,13 @@
 
 using std::string;
 
+struct Socks5ctx {
+    bufferevent *self; //这个self是客户端
+    bufferevent *partner; //这个是远程客户端
+    int request_port;
+    std::string request_ip;
+};
+
 class server {
 public:
 

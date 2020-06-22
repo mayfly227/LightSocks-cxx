@@ -40,21 +40,21 @@ int main(int argc, char **argv) {
     DynamicJsonDocument doc{1024};
     auto ret = Util::readJsonConfig(config_name, doc);
     if (!ret) {
-        spdlog::warn("加载配置文件[{}]失败", config_name);
+        spdlog::warn("load config file [{}] error!", config_name);
         std::ofstream outfile;
         doc["listen_port"] = 7009;
         doc["password"] = Util::genPassword();
         outfile.open("config_server.json");
         serializeJson(doc, outfile);
         outfile.close();
-        spdlog::info("已在当前文件夹下自动生成了[config_server.json]", config_name);
+        spdlog::info("[config_server.json] has been automatically generated in the current folder", config_name);
     }
     //read config from json
-    spdlog::info("成功加载配置文件[{}]", config_name);
+    spdlog::info("successful load config file [{}]", config_name);
     const int listen_port = doc["listen_port"];
     const char *password = doc["password"];
-    spdlog::info("读取到监听地址:[::]:{}", listen_port);
-    spdlog::info("读取到密码:{}", password);
+    spdlog::info("get listen address:[::]:{}", listen_port);
+    spdlog::info("get password:{}", password);
     doc.clear();
     server::setConfig(listen_port, password);
     server::run();

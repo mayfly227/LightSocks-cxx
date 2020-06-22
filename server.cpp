@@ -1,37 +1,40 @@
 ﻿#include <event2/util.h>
-#include <array>
 #include <event2/dns.h>
 
 #include "server.h"
 #include "cipher.h"
+#include "socks5.h"
 
 #define ENCRYPT
 
 #ifdef _WIN32
 #pragma comment(lib, "ws2_32.lib")
 #endif
-struct Socks5ctx {
-    int flag{};
-    bufferevent *self{}; //这个self是客户端
-    bufferevent *partner{}; //这个是远程客户端
-    int request_port{};
-    std::string request_ip;
-};
 
 
 void server::local_event_cb(bufferevent *bev, short what, void *ctx) {
 
-    spdlog::debug("本地event_cb(what)-->: {0:x} ", what);
+    spdlog::debug("local event_cb(what)-->: {0:x} ", what);
     auto context = static_cast<Socks5ctx *>(ctx);
     if (!context) {
-        spdlog::warn("没有context了local_event...");
+        spdlog::warn("with no context in local_event...");
         return;
     }
     //读到文件结尾或者发生错误
+    if (what & BEV_EVENT_TIMEOUT) {
+        spdlog::debug("本地操作时发生错误");
+        if (context->partner) {
+            bufferevent_free(context->partner);
+            context->partner = nullptr;
+        }
+        bufferevent_free(context->self);
+        context->self = nullptr;
+        delete context;
+        context = nullptr;
+    }
     if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
-        spdlog::debug("进入本地逻辑");
         if (what & BEV_EVENT_ERROR) {
-            spdlog::debug("本地操作时发生错误");
+            spdlog::debug("local error!");
         }
         if (context->partner) {
             bufferevent_free(context->partner);
@@ -51,141 +54,23 @@ void server::local_read_cb(bufferevent *bev, void *arg) {
         spdlog::warn("没有context了local_read_cb...");
         return;
     }
-    if (context->flag == 0) {
-        //socks5握手包
-        unsigned char request[64] = {0};
-        auto data_len = bufferevent_read(context->self, request, sizeof(request) - 1);
-#ifdef ENCRYPT
-        Cipher::decrypt_bytes(request, data_len);
-#endif
-        //解析socks5请求
-        if (request[0] == 0x05 && request[1] == 0x01 && request[2] == 0x00) {
-            context->flag = 1;
-            unsigned char success[] = {0x05, 0x00};
-#ifdef ENCRYPT
-            Cipher::encrypt_byte(success, sizeof(success));
-#endif
-            bufferevent_write(context->self, success, sizeof(success));
-        }
-    } else if (context->flag == 1) {
-        //读取建立连接的信息
-        unsigned char connect[64] = {0};
-        auto data_len = bufferevent_read(context->self, connect, sizeof(connect) - 1);
-        //如果小于7
-        if (data_len < 7) { return; }
-#ifdef ENCRYPT
-        Cipher::decrypt_bytes(connect, data_len);
-#endif
-        //parse cmd
-        if (connect[1] != 0x01) {
-            spdlog::warn("only support connect!");
-            return;
-        }
-        //parse ATYP
-        switch (connect[3]) {
-            //ipv4
-            case 0x01: {
-                //parse ip
-                unsigned char ip2[32];
-                char ip_dot[16];
-                for (int i = 4; i < data_len - 2; i++) {
-                    ip2[i - 4] = connect[i];
-                }
-                const char *ip = evutil_inet_ntop(AF_INET, ip2, ip_dot, 16);
-                context->request_ip = ip;
-                //parse port
-                spdlog::debug("ip is {}", context->request_ip);
-                const int port = connect[data_len - 2] << 8 | connect[data_len - 1];
-                context->request_port = port;
-                unsigned char reply[7]{0x05, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00};
-#ifdef ENCRYPT
-//                unsigned char reply_encrypt[7] = {0};
-//                for (int k = 0; k < 7; k++) {
-//                    reply_encrypt[k] = reply[k];
-//                }
-//                for (int i = 0; i < 7; i++) {
-//                    reply[i] = Cipher::password[reply_encrypt[i]];
-//                }
-                Cipher::encrypt_byte(reply,7);
-#endif
-                context->flag = 2;
-                bufferevent_write(bev, reply, 7);
-                break;
-            }
-                //parse domain
-            case 0x03: {
-                auto domain_size = (int) connect[4];
-                std::string hostname;
-                for (int i = 5; domain_size != 0; domain_size--) {
-                    hostname += (char) connect[i];
-                    i++;
-                }
-                //异步解析dns
-                evutil_addrinfo addrInfo{};
-                memset(&addrInfo, 0, sizeof(addrInfo));
-                addrInfo.ai_family = AF_INET; /* for ipv4. */
-                addrInfo.ai_socktype = SOCK_STREAM;
-                addrInfo.ai_protocol = IPPROTO_TCP;
-                /* Only return addresses we can use. */
-                addrInfo.ai_flags = EVUTIL_AI_ADDRCONFIG;
-                //解析端口
-                const int port = connect[data_len - 2] << 8 | connect[data_len - 1];
-                context->request_port = port;
-                //异步解析ip
-                spdlog::debug("正在解析域名{}", hostname.c_str());
-                evdns_getaddrinfo(base_dns_loop, hostname.c_str(), nullptr, &addrInfo, dns_cb, context);
-            }
-                break;
-            case 0x04:
-                //ipv6
-                spdlog::warn("暂时不支持ipv6!");
-                break;
-            default:
-                spdlog::warn("error!");
-                break;
-        }
-        //socks5握手完成,开始转发真正的数据
-    } else if (context->flag == 2) {
-        //转发数据到远程服务器
-        auto partner = context->partner;
-
-        if (!partner) {
-            //获取当前连接客户端的evbuffer
-            evbuffer *local = bufferevent_get_input(context->self);
-            auto len = evbuffer_get_length(local);
-            //把数据从缓冲区移除
-            spdlog::debug("local drain 调用");
-            evbuffer_drain(local, len);
-            return;
-        }
-        // TODO 解密数据返回到服务端
-#ifdef ENCRYPT
-        Cipher::decrypt(context->self, context->partner);
-#else
-        evbuffer *dst,*src;
-        src = bufferevent_get_input(context->self);
-        dst = bufferevent_get_output(context->partner);
-        evbuffer_add_buffer(dst, src); //这个是复制了一份
-#endif
-    }
+    socks5::handle_first(bev, context);
 
 }
 
 void server::remote_event_cb(bufferevent *bev, short what, void *ctx) {
     //bug fixed
-    spdlog::debug("远程event_cb(what)-->: {0:x} ", what);
+    spdlog::debug("remote event_cb(what)-->: {0:x} ", what);
     auto context = static_cast<Socks5ctx *>(ctx);
     if (!context) {
         spdlog::warn("没有context了 remote_event...");
         return;
     }
     if (what & BEV_EVENT_CONNECTED) {
-        spdlog::debug("远程服务端tcp握手成功...");
-        context->flag = 2;
-        // TODO bug fixed
+        spdlog::debug("remote server tcp handshake successful...");
         // bug: 这个时候有可能已经没有Local的context了
         if (!context->self) {
-            spdlog::warn("没有local的context了...");
+            spdlog::warn("with no local context...");
             return;
         }
         unsigned char reply[7] = {0x05, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00};
@@ -197,9 +82,8 @@ void server::remote_event_cb(bufferevent *bev, short what, void *ctx) {
         return;
     }
     if (what & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
-        spdlog::debug("进入远程逻辑...");
         if (what & BEV_EVENT_ERROR) {
-            spdlog::debug("服务端发生错误...");
+            spdlog::debug("remote server error...");
         }
         if (context->self) {
             bufferevent_free(context->self);
@@ -210,13 +94,14 @@ void server::remote_event_cb(bufferevent *bev, short what, void *ctx) {
         delete context;
         context = nullptr;
     } else {
-        if (what & BEV_EVENT_TIMEOUT && what & BEV_EVENT_READING) {
-            spdlog::debug("服务端读取数据端超时...");
+        if (what & BEV_EVENT_TIMEOUT) {
+            spdlog::debug("remote server read data timeout...");
             if (context->self) {
+                std::cout << "context:" << context->self << std::endl;
                 bufferevent_free(context->self);
                 context->self = nullptr;
             }
-            bufferevent_free(context->partner);
+            bufferevent_free(bev);
             context->partner = nullptr;
             delete context;
             context = nullptr;
@@ -227,7 +112,7 @@ void server::remote_event_cb(bufferevent *bev, short what, void *ctx) {
 void server::remote_read_cb(bufferevent *bev, void *arg) {
     auto context = static_cast<Socks5ctx *>(arg);
     if (!context) {
-        spdlog::warn("没有context了 remote_read_cb...");
+        spdlog::warn("with no context in remote_read_cb...");
         return;
     }
     if (!context->self) {
@@ -239,7 +124,6 @@ void server::remote_read_cb(bufferevent *bev, void *arg) {
         evbuffer_drain(remote, len);
     }
 #ifdef ENCRYPT
-    // TODO need bug fixed
     Cipher::encrypt(context->self, context->partner);
 #else
     evbuffer *src,*dst;
@@ -250,7 +134,6 @@ void server::remote_read_cb(bufferevent *bev, void *arg) {
 }
 
 void server::listen_cb(evconnlistener *lev, evutil_socket_t s, sockaddr *sin, int sin_len, void *arg) {
-//    spdlog::info("客户端有新的连接...");
     char ip[128]{0};
     auto r_sa = (sockaddr_in *) sin;
     evutil_inet_ntop(r_sa->sin_family, &(r_sa->sin_addr.s_addr), ip, sin_len);
@@ -258,16 +141,15 @@ void server::listen_cb(evconnlistener *lev, evutil_socket_t s, sockaddr *sin, in
 
     auto base = evconnlistener_get_base(lev);
     //监听本地客户端,用本地客户端连接的socket
-    auto bufev_local = bufferevent_socket_new(base, s, BEV_OPT_CLOSE_ON_FREE);
-    //本地客户端超时为10s
-    timeval local_time_out = {15, 0};
+    auto bufev_local = bufferevent_socket_new(base, s, BEV_OPT_CLOSE_ON_FREE | BEV_OPT_DEFER_CALLBACKS);
+    //本地客户端超时为15s(BUG)
+    timeval local_time_out = {0, 0};
     bufferevent_set_timeouts(bufev_local, &local_time_out, 0);
     //----------------------------------------------------------------------//
     //设置上下文
-    auto socks5Ctx = new Socks5ctx();
+    Socks5ctx *socks5Ctx = new Socks5ctx();
     //初始化参数
     socks5Ctx->self = bufev_local;
-    socks5Ctx->flag = 0;
     //设置回调和事件
     bufferevent_setcb(bufev_local, local_read_cb, nullptr, local_event_cb, socks5Ctx);
     bufferevent_enable(bufev_local, EV_READ | EV_WRITE);
@@ -328,14 +210,14 @@ void server::run() {
             (sockaddr *) &sin_local,
             sizeof(sin_local));
     if (ev_listen) {
-        spdlog::info("监听在: [::]:{}", listen_port);
+        spdlog::info("Listen on: [::]:{}", listen_port);
         //资源清理
         event_base_dispatch(base_loop);
         evconnlistener_free(ev_listen);
         event_base_free(base_loop);
     } else {
         event_base_free(base_loop);
-        spdlog::warn("监听端口[{}]失败!", listen_port);
+        spdlog::warn("Listen port [{}] error!", listen_port);
     }
 
 
@@ -357,21 +239,26 @@ void server::dns_cb(int errcode, evutil_addrinfo *answer, void *ctx) {
         spdlog::warn("dns_cb error!");
         return;
     }
-    if (!errcode) {
+    if (errcode) {
+        spdlog::info("dns解析出错....");
+        spdlog::warn("%s", evutil_gai_strerror(errcode));
+    } else {
         char temp_ip[128] = {0};
         auto sin = (sockaddr_in *) answer->ai_addr;
         auto ip = evutil_inet_ntop(answer->ai_family, &sin->sin_addr, temp_ip, sizeof(temp_ip));
         //可能解析不成功
-        if (!ip){
+        if (!ip) {
             spdlog::warn("ip resolve error!");
             exit(0);
         }
-        std::string real_ip = ip;
-        context->request_ip = real_ip;
+//        std::string real_ip = temp_ip;
+//        context->request_ip = real_ip;
+        std::cout << ip << std::endl;
+        context->request_ip = std::string(temp_ip);
         spdlog::debug("Ip:{}-->port:{}", context->request_ip, context->request_port);
 
         //解析dns完成,连接远程服务器
-        auto bufev_remote = bufferevent_socket_new(base_loop, -1, BEV_OPT_CLOSE_ON_FREE);
+        auto bufev_remote = bufferevent_socket_new(base_loop, -1, BEV_OPT_CLOSE_ON_FREE | BEV_OPT_DEFER_CALLBACKS);
         sockaddr_in sin_remote{};
         memset(&sin_remote, 0, sizeof(sin_remote));
         sin_remote.sin_family = AF_INET;
@@ -395,10 +282,8 @@ void server::dns_cb(int errcode, evutil_addrinfo *answer, void *ctx) {
         } else {
             spdlog::warn("connect事件失败");
             return;
+            evutil_freeaddrinfo(answer);
         }
-        evutil_freeaddrinfo(answer);
-    } else {
-        spdlog::info("dns解析出错....");
     }
 }
 
