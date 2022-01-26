@@ -1,5 +1,17 @@
 # [Lightsocks-c++](https://github.com/maxlv7/lightsocks-c++)
 
+# 新项目预告：超轻量级网络加密代理(名称未定)
+具有以下特性：
+1. 使用轻量级单线程reactor框架tohka(?)
+2. 代码结构简单
+
+**通过本项目您可以学到:**
+1. 如何构建单线程reactor框架
+2. 如何以简易的目光正视shoadowsocks,v2ray等软件
+3. 如何进行网络编程的开发
+
+---
+
 一个轻量级网络混淆代理，基于 SOCKS5 协议，可用来代替 Shadowsocks(?)。
 
 - 只专注于混淆，用最简单高效的混淆算法达到目的；
